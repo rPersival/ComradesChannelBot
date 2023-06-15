@@ -13,115 +13,138 @@ namespace ComradesChannelBot.Handlers
 {
     public static class UpdateHandler
     {
+        private static readonly SocketGuild Guild =
+            DiscordBot.Client.GetGuild(Configuration.Root.GetValue<ulong>("guild"));
+
+        private static readonly SocketCategoryChannel CategoryChannel = Guild
+            .GetCategoryChannel(Configuration.Root.GetValue<ulong>("category"));
+
+        private static readonly SocketCategoryChannel CustomCategoryChannel = Guild
+            .GetCategoryChannel(Configuration.Root.GetValue<ulong>("customcategory"));
+        
         private static readonly Dictionary<string, ulong> Emotes = new Dictionary<string, ulong> {
             { "pepe_coffee", Configuration.Root.GetValue<ulong>("pepe_coffee") }
         };
+        
         public static async Task OnMessageRecievedAsync(SocketMessage m)
         {
-            SocketUserMessage msg = m as SocketUserMessage;
-            if (msg == null) return;
+            if (!(m is SocketUserMessage msg)) return;
             if (string.IsNullOrWhiteSpace(msg.Content)) return;
             if (msg.Author.Id == DiscordBot.Client.CurrentUser.Id) return;
-            var context = new SocketCommandContext(DiscordBot.Client, msg);
             
-            var user = context.User;
-            var guild = DiscordBot.Client.GetGuild(Configuration.Root.GetValue<ulong>("guild"));
-            var thisUser = context.User as SocketGuildUser;
-            var splited = context.Message.Content.Split(' ');
-            var comrades = context.Guild.Roles.FirstOrDefault(x
-                => x.Id == Configuration.Root.GetValue<ulong>("comrades"));
+            SocketCommandContext context = new SocketCommandContext(DiscordBot.Client, msg);
 
-            var embed = new EmbedBuilder();
+            if (Guild is null)
+            {
+                Logger.Log("Cannot find Guild by id");
+                await context.Channel.SendMessageAsync(null, false, 
+                    GetErrorEmbed(CacheService.Lang["guild_error"]));
+                return;
+            }
+            
+            if (CategoryChannel is null)
+            {
+                Logger.Log("Cannot find Category by id");
+                await context.Channel.SendMessageAsync(null, false, 
+                    GetErrorEmbed(CacheService.Lang["category_error"]));
+                return;
+            }
+
+            if (CustomCategoryChannel is null)
+            {
+                Logger.Log("Cannot find CustomCategory by id");
+                await context.Channel.SendMessageAsync(null, false, 
+                    GetErrorEmbed(CacheService.Lang["custom_category_error"]));
+                return;
+            }
+            
+            SocketUser user = context.User;
+            SocketGuildUser thisUser = context.User as SocketGuildUser;
+            
+            string[] splitMessage = context.Message.Content.Split(' ');
+            
+            SocketRole comrades = context.Guild.Roles.FirstOrDefault(x 
+                => x.Id == Configuration.Root.GetValue<ulong>("comrades"));
 
             if (msg.Channel.Id == Configuration.Root.GetValue<ulong>("authchannel"))
             {
-                if (splited[0] == CacheService.Code)
+                if (splitMessage[0] == CacheService.Code)
                 {
                     if (thisUser != null && thisUser.Roles.Contains(comrades))
                     {
-                        embed.Color = Color.Orange;
-                        embed.Title = CacheService.Lang["warning_title"];
-                        embed.Description = context.Message.Author.Mention + CacheService.Lang["auth_warn"];
-                        await context.Channel.SendMessageAsync(null, false, embed.Build());
+                        await context.Channel.SendMessageAsync(null, false, 
+                            GetWarningEmbed(CacheService.Lang["auth_warn"], context.Message.Author));
                         await msg.DeleteAsync();
                         return;
                     }
-
                     await (user as IGuildUser)?.AddRoleAsync(comrades)!;
                     Logger.Log("Passed");
-                    embed.Color = Color.Green;
-                    embed.Title = CacheService.Lang["success_title"];
-                    embed.Description = context.Message.Author.Mention + CacheService.Lang["auth_success"]
-                        .Replace("{guild.Name}", guild.Name);
-                    await context.Channel.SendMessageAsync(null, false, embed.Build());
+                    string successDescription = CacheService.Lang["auth_success"]
+                        ?.Replace("{guild.Name}", Guild.Name);
+                    await context.Channel.SendMessageAsync(null, false, 
+                        GetSuccessEmbed(successDescription, context.Message.Author));
                     await msg.DeleteAsync();
                     return;
                 }
-
-                embed.Color = Color.Red;
-                embed.Title = CacheService.Lang["error_title"];
-                embed.Description = context.Message.Author.Mention + CacheService.Lang["auth_error"]
+                string errorDescription = CacheService.Lang["auth_error"]?
                     .Replace("{MentionUtils.MentionChannel(714800261750849596)}",
                         MentionUtils.MentionChannel(714800261750849596));
-                //embed.Footer = new EmbedFooterBuilder { Text = $"" };
-                await context.Channel.SendMessageAsync(null, false, embed.Build());
+                await context.Channel.SendMessageAsync(null, false, 
+                    GetErrorEmbed(errorDescription, context.Message.Author));
                 await msg.DeleteAsync();
                 return;
             }
 
             if (msg.Content.Contains(DiscordBot.Client.CurrentUser.Mention))
             {
-                if (thisUser != null && 
-                    thisUser.Roles.Contains(context.Guild.Roles.FirstOrDefault(x
+                if (thisUser != null && thisUser.Roles.Contains(context.Guild.Roles.FirstOrDefault(x 
                         => x.Permissions.Administrator)))
                 {
                     await context.Channel.SendMessageAsync("wtf discord mod?");
                     return;
                 }
-                var randommessages = Configuration.Root.GetSection("randommessage").Get<string[]>();
-                var randommessage = randommessages[new Random().Next(randommessages.Length)];
+                string[] randommessages = Configuration.Root.GetSection("randommessage").Get<string[]>();
+                string randommessage = randommessages[new Random().Next(randommessages.Length)];
                 await context.Channel.SendMessageAsync(randommessage);
                 return;
             }
-            if (!splited.First().StartsWith(Configuration.Root["prefix"])) return; //чекаем что команда
-            string command = splited.First().Remove(0, 1).ToLower();
-            string[] args = splited.Skip(1).ToArray();
+
+            String prefix = Configuration.Root["prefix"];
+            if (prefix is null) return;
+            if (!splitMessage.First().StartsWith(prefix)) return;
+            string command = splitMessage.First().Remove(0, 1).ToLower();
+            
+            string[] args = splitMessage.Skip(1).ToArray();
+            
             switch (command)
             {
                 case "lang":
                     await LangCommand(context, args, 
-                        string.Join(' ', splited.Skip(1)), msg);
+                        string.Join(' ', splitMessage.Skip(1)), msg);
                     break;
 
                 case "cc":
                 case "createchannel":
-                    await CreateChannelCommand(context, false, args,
-                        string.Join(' ', splited.Skip(1)));
-                    await msg.DeleteAsync();
-                    break;
-
-                case "cgc":
-                case "creategamingchannel":
-                    await CreateChannelCommand(context, true, args,
-                        string.Join(' ', splited.Skip(1)));
+                    await CreateChannelCommand(context, args,
+                        string.Join(' ', splitMessage.Skip(1)));
                     await msg.DeleteAsync();
                     break;
                 
                 case "createguild":
                 case "cg":
-                    await CreateGuildCommand(context, args,string.Join(' ', splited.Skip(1)));
+                    await CreateGuildCommand(context, args,string.Join(' ', splitMessage.Skip(1)));
                     break;
                 
                 case "code":
-                    await CodeCreateCommand(context, args, string.Join(' ', splited.Skip(1)), msg);
+                    await CodeCreateCommand(context, args, string.Join(' ', splitMessage.Skip(1)), msg);
                     break;
 
                 case "welcome":
-                    await WelcomeMessage(context, msg, args, string.Join(' ', splited.Skip(1)));
+                    await WelcomeMessage(context, msg, args, string.Join(' ', splitMessage.Skip(1)));
                     break;
 
                 case "settings":
-                    await SettingMessage(context, msg, args, splited[1]);
+                    await SettingMessage(context, msg, args, splitMessage[1]);
                     break;
                 
                 case "customrolemessage":
@@ -134,81 +157,65 @@ namespace ComradesChannelBot.Handlers
                     break;
                 
                 default:
-                    var embedComm = new EmbedBuilder
-                    {
-                        Color = Color.Red,
-                        Title = CacheService.Lang["error_title"],
-                        Description = context.Message.Author.Mention + CacheService.Lang["command_doesnt_exist"]
-                            .Replace("{Configuration.Root[\"prefix\"]}", Configuration.Root["prefix"])
-                    };
-                    await context.Channel.SendMessageAsync(null, false, embedComm.Build());
+                    string errorDescription = CacheService.Lang["command_doesnt_exist"]
+                        ?.Replace("{Configuration.Root[\"prefix\"]}", Configuration.Root["prefix"]);
+                    
+                    await context.Channel.SendMessageAsync(null, false, 
+                        GetErrorEmbed(errorDescription, context.Message.Author));
                     break;
             }
         }
+        
         public static async Task OnUserJoinVoiceChannel(SocketUser user, SocketVoiceState state,
             SocketVoiceState state2)
         {
-            // If user muted, deafened or shared screen then return
             if (state.VoiceChannel == state2.VoiceChannel || state2.VoiceChannel == null || 
                 state2.VoiceChannel.Id != Configuration.Root.GetValue<ulong>("createch") ||
                 state.VoiceChannel?.Id == Configuration.Root.GetValue<ulong>("createch")) return;
 
-            var currentUser = user as SocketGuildUser;
-            var guild = DiscordBot.Client.GetGuild(Configuration.Root.GetValue<ulong>("guild"));
-            if (currentUser != null)
+            if (user is SocketGuildUser currentUser)
             {
                 string channelName = (string.IsNullOrWhiteSpace(currentUser.Nickname) 
                     ? user.Username : currentUser.Nickname) + "'s channel";
             
-                var embedKick = new EmbedBuilder
-                {
-                    Color = Color.Red,
-                    Title = CacheService.Lang["error_title_channel"],
-                    Description = currentUser.Mention + CacheService.Lang["channel_error_existed"]
-                };
-            
-                if (guild.Channels.FirstOrDefault(x => x is SocketVoiceChannel channel 
+                Embed errorEmbed = GetErrorEmbed(CacheService.Lang["channel_error_existed"], currentUser);
+                if (Guild.Channels.FirstOrDefault(x => x is SocketVoiceChannel channel 
                                                        && channel.CategoryId == 
-                                                       Configuration.Root.GetValue<ulong>("customcategory")
+                                                       CustomCategoryChannel.Id
                                                        && channel.Name == channelName) != null) 
                 {
-                    await guild.GetTextChannel(Configuration.Root.GetValue<ulong>("logchannel"))
-                        .SendMessageAsync(null, false, embedKick.Build());
+                    await Guild.GetTextChannel(Configuration.Root.GetValue<ulong>("logchannel"))
+                        .SendMessageAsync(null, false, errorEmbed);
                     await currentUser.ModifyAsync(x => x.Channel = null);
-                    await currentUser.SendMessageAsync(null, false, embedKick.Build());
+                    await currentUser.SendMessageAsync(null, false, errorEmbed);
                     return;
                 }
-                RestVoiceChannel voiceChannel = await guild.CreateVoiceChannelAsync(channelName,
-                    x => x.CategoryId = Configuration.Root.GetValue<ulong>("customcategory"));
-                CacheService.СurrentlyCreated++; //таймер для канала
+                RestVoiceChannel voiceChannel = await Guild.CreateVoiceChannelAsync(channelName,
+                    x => x.CategoryId = CustomCategoryChannel.Id);
+                CacheService.СurrentlyCreated++;
                 new ChannelTimer(voiceChannel.Id).Set(Configuration.Root.GetValue<double>("deletionms"));
                 await currentUser.ModifyAsync(x => x.ChannelId = voiceChannel.Id);
-                OverwritePermissions currentPermsEvery = voiceChannel
-                                                             .GetPermissionOverwrite(DiscordBot.Client
-                                                                 .GetGuild(Configuration.Root.GetValue<ulong>("guild")).EveryoneRole) 
+                OverwritePermissions currentPermsEvery = voiceChannel.GetPermissionOverwrite(Guild.EveryoneRole) 
                                                          ?? new OverwritePermissions();
                 await voiceChannel.AddPermissionOverwriteAsync(user,
                     currentPermsEvery.Modify(manageChannel: PermValue.Allow));
-                var embed = new EmbedBuilder
-                {
-                    Color = Color.Green,
-                    Title = CacheService.Lang["success_title_channel"],
-                    Description = CacheService.Lang["channel_success_user"].Replace("{channelName}",
-                        channelName).Replace("{currentUser.Mention}", currentUser.Mention)
-                };
-                await guild.GetTextChannel(Configuration.Root.GetValue<ulong>("logchannel"))
-                    .SendMessageAsync(null, false, embed.Build());
+                
+                await Guild.GetTextChannel(Configuration.Root.GetValue<ulong>("logchannel"))
+                    .SendMessageAsync(null, false, GetSuccessEmbed(
+                        CacheService.Lang["channel_success_user"]
+                            ?.Replace("{channelName}",
+                        channelName).Replace("{currentUser.Mention}", currentUser.Mention)));
             }
         }
 
-        public static async Task OnReactionAdded(Cacheable<IUserMessage, ulong> a, ISocketMessageChannel mc,
+        public static async Task OnReactionAdded(Cacheable<IUserMessage, ulong> a, Cacheable<IMessageChannel, ulong> mc,
             SocketReaction reaction) 
         {
             if (reaction.User.Value.Id == DiscordBot.Client.CurrentUser.Id) return;
             if (reaction.MessageId != CacheService.WelcomeMessageId) return;
-            var sockguild = ((SocketGuildChannel)reaction.Channel).Guild;
-            var user = reaction.User.Value as SocketGuildUser;
-            var msg = await reaction.Channel.GetMessageAsync(reaction.MessageId);
+            SocketGuild sockguild = ((SocketGuildChannel)reaction.Channel).Guild;
+            SocketGuildUser user = reaction.User.Value as SocketGuildUser;
+            IMessage msg = await reaction.Channel.GetMessageAsync(reaction.MessageId);
             if (reaction.Emote.Name == "🔄")
             {
                 if(user != null && !user.Roles.Contains(sockguild.Roles.FirstOrDefault(
@@ -229,61 +236,49 @@ namespace ComradesChannelBot.Handlers
                 return;
             } 
             
-            //var role = sockguild.Roles.FirstOrDefault(r => r.Id == emotes[reaction.Emote.Name]);
-            var role = sockguild.GetRole(859064656710729759); //events
+            SocketRole role = sockguild.GetRole(859064656710729759); //events
             if (role == null) return;
             if (user != null && user.Roles.Contains(role)) {
-                //await msg.RemoveReactionAsync(reaction.Emote, reaction.User.Value.Id);
                 return;
             }
 
             if (user != null) await user.AddRoleAsync(role);
-
-            //await (msg as IUserMessage).AddReactionsAsync(new List<Emoji>
-            //{
-            //    new Emoji("\uD83C\uDF46")
-            //}.ToArray());
         }
         
-
-        public static async Task OnReactionRemoved(Cacheable<IUserMessage, ulong> a, ISocketMessageChannel mc,
+        public static async Task OnReactionRemoved(Cacheable<IUserMessage, ulong> a, Cacheable<IMessageChannel, ulong> mc,
             SocketReaction reaction)
         {
             if (reaction.User.Value.Id == DiscordBot.Client.CurrentUser.Id) return;
             if (reaction.MessageId != CacheService.WelcomeMessageId) return;
             if (!Emotes.ContainsKey(reaction.Emote.Name)) return;
-            var socketGuild = ((SocketGuildChannel)reaction.Channel).Guild;
-            var user = reaction.User.Value as SocketGuildUser;
-            var role = socketGuild.GetRole(859064656710729759);
+            SocketGuild socketGuild = ((SocketGuildChannel)reaction.Channel).Guild;
+            SocketGuildUser user = reaction.User.Value as SocketGuildUser;
+            SocketRole role = socketGuild.GetRole(859064656710729759);
             if (role == null) return;
             if (user != null && user.Roles.Contains(role))
                 await user.RemoveRoleAsync(role);
         }
+        
         #region Commands
         private static async Task LangCommand(SocketCommandContext context, string[] args, string lang,
             SocketMessage msg)
         {
-            var user = context.User;
-            var currentUser = user as SocketGuildUser;
-            var embed = new EmbedBuilder();
+            SocketUser user = context.User;
+            SocketGuildUser currentUser = user as SocketGuildUser;
 
             if (args.Length < 1)
             {
-                embed.Color = Color.Blue;
-                embed.Title = CacheService.Lang["info_title"];
-                embed.Description = context.Message.Author.Mention + CacheService.Lang["current_lang"];
-                await context.Channel.SendMessageAsync(null, false, embed.Build());
+                await context.Channel.SendMessageAsync(null, false, 
+                    GetInfoEmbed(CacheService.Lang["current_lang"], context.Message.Author));
                 await msg.DeleteAsync();
                 return;
             }
 
-            if (currentUser != null && !currentUser.Roles.Contains(context.Guild.Roles.FirstOrDefault(
-                    x => x.Permissions.Administrator)))
+            if (currentUser != null && !currentUser.Roles.Contains(context.Guild.Roles.FirstOrDefault(x => 
+                    x.Permissions.Administrator)))
             {
-                embed.Color = Color.Red;
-                embed.Title = CacheService.Lang["error_title"];
-                embed.Description = context.Message.Author.Mention + CacheService.Lang["perms_error"];
-                await context.Channel.SendMessageAsync(null, false, embed.Build());
+                await context.Channel.SendMessageAsync(null, false, 
+                    GetErrorEmbed(CacheService.Lang["perms_error"], context.Message.Author));
                 await msg.DeleteAsync();
                 return;
             }
@@ -292,39 +287,33 @@ namespace ComradesChannelBot.Handlers
             {
                 case "en-us":
                     CacheService.Lang = Configuration.English;
-                    embed.Color = Color.Green;
-                    embed.Title = CacheService.Lang["success_title"];
-                    embed.Description = context.Message.Author.Mention + CacheService.Lang["lang_changed"];
-                    await context.Channel.SendMessageAsync(null, false, embed.Build());
+                    await context.Channel.SendMessageAsync(null, false, 
+                        GetSuccessEmbed(CacheService.Lang["lang_changed"], context.Message.Author));
                     await msg.DeleteAsync();
                     return;
 
                 case "ru-ru":
                     CacheService.Lang = Configuration.Russian;
-                    embed.Color = Color.Green;
-                    embed.Title = CacheService.Lang["success_title"];
-                    embed.Description = context.Message.Author.Mention + CacheService.Lang["lang_changed"];
-                    await context.Channel.SendMessageAsync(null, false, embed.Build());
+                    await context.Channel.SendMessageAsync(null, false,
+                        GetSuccessEmbed(CacheService.Lang["lang_changed"], context.Message.Author));
                     await msg.DeleteAsync();
                     return;
 
                 default:
-                    embed.Color = Color.Red;
-                    embed.Title = CacheService.Lang["error_title"];
-                    embed.Description = context.Message.Author.Mention + CacheService.Lang["lang_notsupported"];
-                    await context.Channel.SendMessageAsync(null, false, embed.Build());
+                    await context.Channel.SendMessageAsync(null, false, 
+                        GetErrorEmbed(CacheService.Lang["lang_notsupported"], context.Message.Author));
                     await msg.DeleteAsync();
                     return;
             }
         }
-        private static async Task CreateChannelCommand(SocketCommandContext context, bool gaming, string[] args,
+        
+        private static async Task CreateChannelCommand(SocketCommandContext context, string[] args,
             string name)
         {
-            var guild = DiscordBot.Client.GetGuild(Configuration.Root.GetValue<ulong>("guild"));
             name = name.Trim();
             if (CacheService.СurrentlyCreated >= Configuration.Root.GetValue<int>("limit"))
             {
-                var embed = new EmbedBuilder
+                EmbedBuilder embed = new EmbedBuilder
                 {
                     Color = Color.Red,
                     Title = CacheService.Lang["error_title_channel"],
@@ -336,20 +325,21 @@ namespace ComradesChannelBot.Handlers
             
             if (args.Length > 0)
             {
-                var ch = await context.Guild.CreateVoiceChannelAsync(name, x => 
-                    x.CategoryId = Configuration.Root.GetValue<ulong>(!gaming ? "category" : "gamingcategory"));
-                OverwritePermissions currentPermsEvery = ch.GetPermissionOverwrite(DiscordBot.Client.GetGuild(
-                    Configuration.Root.GetValue<ulong>("guild")).EveryoneRole) ?? new OverwritePermissions();
+                RestVoiceChannel ch = await context.Guild.CreateVoiceChannelAsync(name, x => 
+                    x.CategoryId = CategoryChannel.Id);
+                OverwritePermissions currentPermsEvery = ch.GetPermissionOverwrite(Guild.EveryoneRole)
+                                                         ?? new OverwritePermissions();
                 await ch.AddPermissionOverwriteAsync(context.User, currentPermsEvery.Modify(
                     manageChannel: PermValue.Allow));
-                var embed = new EmbedBuilder
+                EmbedBuilder embed = new EmbedBuilder
                 {
                     Color = Color.Green,
                     Title = CacheService.Lang["success_title_channel"],
-                    Description = CacheService.Lang["channel_success_name"].Replace("{NameShort}", name)
+                    Description = CacheService.Lang["channel_success_name"]
+                        ?.Replace("{NameShort}", name)
                         .Replace("{context.Message.Author.Mention}", context.Message.Author.Mention)
                 };
-                await guild.GetTextChannel(Configuration.Root.GetValue<ulong>("logchannel"))
+                await Guild.GetTextChannel(Configuration.Root.GetValue<ulong>("logchannel"))
                     .SendMessageAsync("", false, embed.Build());
                 new ChannelTimer(ch.Id).Set(Configuration.Root.GetValue<double>("deletionms"));
                 CacheService.СurrentlyCreated++;
@@ -358,30 +348,31 @@ namespace ComradesChannelBot.Handlers
             
             else if (args.Length == 0)
             {
-                var randonamesfirst = CacheService.Lang.GetSection("randomfirst").Get<string[]>();
-                var randonamefirst = randonamesfirst[new Random().Next(randonamesfirst.Length)];
+                string[] randonamesfirst = CacheService.Lang.GetSection("randomfirst").Get<string[]>();
+                string randonamefirst = randonamesfirst[new Random().Next(randonamesfirst.Length)];
 
-                var randonamessecond = CacheService.Lang.GetSection("randomsecond").Get<string[]>();
-                var randonamesecond = randonamessecond[new Random().Next(randonamessecond.Length)];
+                string[] randonamessecond = CacheService.Lang.GetSection("randomsecond").Get<string[]>();
+                string randonamesecond = randonamessecond[new Random().Next(randonamessecond.Length)];
 
-                var ch = await context.Guild.CreateVoiceChannelAsync($"{randonamefirst} " +
+                RestVoiceChannel ch = await context.Guild.CreateVoiceChannelAsync($"{randonamefirst} " +
                                                                      $"\"{randonamesecond}\"", x =>
-                    x.CategoryId = Configuration.Root.GetValue<ulong>(!gaming ? "category" : "gamingcategory"));
+                    x.CategoryId = CategoryChannel.Id);
 
-                OverwritePermissions currentPermsEvery = ch.GetPermissionOverwrite(DiscordBot.Client.GetGuild(
-                    Configuration.Root.GetValue<ulong>("guild")).EveryoneRole) ?? new OverwritePermissions();
+                OverwritePermissions currentPermsEvery = ch.GetPermissionOverwrite(Guild.EveryoneRole) 
+                                                         ?? new OverwritePermissions();
                 await ch.AddPermissionOverwriteAsync(context.User, currentPermsEvery
                     .Modify(manageChannel: PermValue.Allow));
 
-                var embed = new EmbedBuilder
+                EmbedBuilder embed = new EmbedBuilder
                 {
                     Color = Color.Green,
                     Title = CacheService.Lang["success_title_channel"],
-                    Description = CacheService.Lang["channel_success_randname"].Replace("{randonamefirst}"
+                    Description = CacheService.Lang["channel_success_randname"]
+                        ?.Replace("{randonamefirst}"
                         , randonamefirst).Replace("{randonamesecond}", randonamesecond)
                         .Replace("{context.Message.Author.Mention}", context.Message.Author.Mention)
                 };
-                await guild.GetTextChannel(Configuration.Root.GetValue<ulong>("logchannel"))
+                await Guild.GetTextChannel(Configuration.Root.GetValue<ulong>("logchannel"))
                     .SendMessageAsync("", false, embed.Build());
 
                 new ChannelTimer(ch.Id).Set(Configuration.Root.GetValue<double>("deletionms"));
@@ -391,7 +382,7 @@ namespace ComradesChannelBot.Handlers
             }
             else
             {
-                var embed = new EmbedBuilder
+                EmbedBuilder embed = new EmbedBuilder
                 {
                     Color = Color.Red,
                     Title = CacheService.Lang["error_title_channel"],
@@ -400,23 +391,25 @@ namespace ComradesChannelBot.Handlers
                 await context.Channel.SendMessageAsync(null, false, embed.Build());
             }
         }
+        
         private static async Task CreateGuildCommand(SocketCommandContext context, string[] args, string name)
         {
             if (args.Length != 1) return;
             await context.Channel.SendMessageAsync("Check");
-            var rum = await context.Channel.SendMessageAsync($"*{name}*");
+            RestUserMessage rum = await context.Channel.SendMessageAsync($"*{name}*");
             await rum.AddReactionsAsync(new List<Emoji>
             {
                 new Emoji("\u2705"),
                 new Emoji("\u274C")
             }.ToArray()); //todo: reactions
         }
+        
         private static async Task WelcomeMessage(SocketCommandContext context, SocketMessage msg, string[] args, 
             string id)
         {
-            var user = context.User;
-            var currentUser = user as SocketGuildUser;
-            var embed = new EmbedBuilder();
+            SocketUser user = context.User;
+            SocketGuildUser currentUser = user as SocketGuildUser;
+            EmbedBuilder embed = new EmbedBuilder();
             if (currentUser != null && !currentUser.Roles.Contains(context.Guild.Roles
                     .FirstOrDefault(x => x.Permissions.Administrator)))
             {
@@ -440,15 +433,15 @@ namespace ComradesChannelBot.Handlers
             
             else if (args.Length == 0)
             {
-                var entries = CacheService.Lang.GetSection("roles_selection").Get<string[]>();
-                var entriesDesc = CacheService.Lang.GetSection("roles_desc").Get<string[]>();
+                string[] entries = CacheService.Lang.GetSection("roles_selection").Get<string[]>();
+                string[] entriesDesc = CacheService.Lang.GetSection("roles_desc").Get<string[]>();
                 embed.Color = Color.Blue;
                 embed.Title = CacheService.Lang["select_title"];
-                var fields = new List<EmbedFieldBuilder>();
+                List<EmbedFieldBuilder> fields = new List<EmbedFieldBuilder>();
                 for (int i = 0; i < entries.Length; i++) fields.Add(new EmbedFieldBuilder
                     { Name = i + 1 + ". " + entries[i] + " \n", Value = entriesDesc[i] + "\n" });
                 embed.Fields = fields;
-                var message = await context.Channel.SendMessageAsync(null, false, embed.Build());
+                RestUserMessage message = await context.Channel.SendMessageAsync(null, false, embed.Build());
                 CacheService.WelcomeMessageId = message.Id;
                 await message.AddReactionsAsync(
                     Emotes.Keys.Select(x => (message.Channel as SocketGuildChannel)?
@@ -465,9 +458,11 @@ namespace ComradesChannelBot.Handlers
                 await context.Channel.SendMessageAsync(null, false, embed.Build());
             }
         }
-        private static async Task SettingMessage(SocketCommandContext context, SocketMessage msg, string[] args, string setting)
+        
+        private static async Task SettingMessage(SocketCommandContext context, SocketMessage msg, string[] args, 
+            string setting)
         {
-            var embed = new EmbedBuilder();
+            EmbedBuilder embed = new EmbedBuilder();
             if (!((SocketGuildUser)context.User).Roles.Contains(context.Guild.Roles.FirstOrDefault(
                     x => x.Permissions.Administrator)))
             {
@@ -481,26 +476,26 @@ namespace ComradesChannelBot.Handlers
             switch (setting)
             {
                 case "authchannel":
-                    var channel = msg.MentionedChannels.ToArray();
+                    SocketGuildChannel[] channel = msg.MentionedChannels.ToArray();
                     if (channel.Length != 1) return;
                     //CacheService.AuthChannel = channel[0].Id;
                     await context.Channel.SendMessageAsync("");
                     return;
 
                 case "defrole":
-                    var role = msg.MentionedRoles.ToArray();
+                    SocketRole[] role = msg.MentionedRoles.ToArray();
                     if (role.Length != 1) return;
                     //CacheService.DefaultRole = role[0].Id;
                     return;
 
                 case "logchannel":
-                    var logchannel = msg.MentionedRoles.ToArray();
+                    SocketRole[] logchannel = msg.MentionedRoles.ToArray();
                     if (logchannel.Length != 1) return;
                     //CacheService.LogChannel = logchannel[0].Id;
                     return;
 
                 case "limchannel":
-                    var limchannel = args[1];
+                    string limchannel = args[1];
                     if (!int.TryParse(limchannel, out int lim)) return;
                     if (lim < 0 || lim > 30) return;
                     //CacheService.ChannelLim = lim;
@@ -511,28 +506,15 @@ namespace ComradesChannelBot.Handlers
                     //CacheService.FirstCategory = category;
                     return;
 
-                case "gamingcategory":
-                    if (args.Length == 2 && ulong.TryParse(args[1], out ulong _))
-                    {
-                        //CacheService.SecondCategory = gcategory;
-                    }
-
-                    else if (args.Length < 2)
-                    {
-                        await context.Guild.CreateCategoryChannelAsync("Gaming Category");
-                        //CacheService.SecondCategory = gcategorycreated;
-                    }
-                    return;
-
                 case "react":
                     Emote emote = null;
-                    foreach (var t in args)
-                        if (Emote.TryParse(t, out var tempEmote))
+                    foreach (string t in args)
+                        if (Emote.TryParse(t, out Emote tempEmote))
                         {
                             emote = tempEmote;
                             break;
                         }
-                    var rolesem = msg.MentionedRoles.ToArray();
+                    SocketRole[] rolesem = msg.MentionedRoles.ToArray();
                     if (rolesem.Length != 1) return;
                     if (emote != null) CacheService.emotes.Add(emote.Name, rolesem[0].Id);
                     //CacheService.CustomEmotesMsgId = reactmsg.Id;
@@ -540,9 +522,9 @@ namespace ComradesChannelBot.Handlers
 
                 case "reactremove":
                     Emote emoterem = null;
-                    foreach (var t in args)
+                    foreach (string t in args)
                     {
-                        if (Emote.TryParse(t, out var tempEmote))
+                        if (Emote.TryParse(t, out Emote tempEmote))
                         {
                             emoterem = tempEmote;
                             break;
@@ -554,8 +536,8 @@ namespace ComradesChannelBot.Handlers
 
                 case "reactlist":
                     string emotesList = string.Empty;
-                    var emotesKey = CacheService.emotes.Keys.ToArray();
-                    var emotesValues = CacheService.emotes.Values.ToArray();
+                    string[] emotesKey = CacheService.emotes.Keys.ToArray();
+                    ulong[] emotesValues = CacheService.emotes.Values.ToArray();
                     for (int i = 0; i < CacheService.emotes.Count; i++)
                         emotesList += emotesKey[i] + " - " + emotesValues[i] + "\n";
                     await context.Channel.SendMessageAsync(emotesList);
@@ -574,7 +556,7 @@ namespace ComradesChannelBot.Handlers
 
                     else if (args.Length < 2)
                     {
-                        var custcategory = await context.Guild
+                        RestCategoryChannel custcategory = await context.Guild
                             .CreateCategoryChannelAsync("Custom Channels");
                         await context.Guild
                             .CreateVoiceChannelAsync("[+] Create Channel",
@@ -586,14 +568,15 @@ namespace ComradesChannelBot.Handlers
                     return;
             }
         }
+        
         private static async Task CodeCreateCommand(SocketCommandContext context, string[] args,
             string code, SocketMessage msg)
         {
-            var user = context.User;
+            SocketUser user = context.User;
             if (user is SocketGuildUser currentUser && !currentUser.Roles.Contains(context.Guild.Roles
                     .FirstOrDefault(x => x.Permissions.Administrator)))
             {
-                var embed = new EmbedBuilder
+                EmbedBuilder embed = new EmbedBuilder
                 {
                     Color = Color.Red,
                     Title = CacheService.Lang["error_title"],
@@ -605,7 +588,7 @@ namespace ComradesChannelBot.Handlers
 
             else if (args.Length < 1)
             {
-                var embed = new EmbedBuilder
+                EmbedBuilder embed = new EmbedBuilder
                 {
                     Color = Color.Blue,
                     Title = CacheService.Lang["info_title"],
@@ -617,7 +600,7 @@ namespace ComradesChannelBot.Handlers
             else if (args.Length == 1)
             {
                 CacheService.Code = code;
-                var embed = new EmbedBuilder
+                EmbedBuilder embed = new EmbedBuilder
                 {
                     Color = Color.Green,
                     Title = CacheService.Lang["success_title"],
@@ -629,7 +612,7 @@ namespace ComradesChannelBot.Handlers
 
             else
             {
-                var embed = new EmbedBuilder
+                EmbedBuilder embed = new EmbedBuilder
                 {
                     Color = Color.Red,
                     Title = CacheService.Lang["error_title"],
@@ -639,10 +622,11 @@ namespace ComradesChannelBot.Handlers
                 await msg.DeleteAsync();
             }
         }
+
         private static async Task CustomRoleMessage(SocketCommandContext context, IReadOnlyList<string> args)
         {
-            var user = context.User;
-            var msg = context.Message;
+            SocketUser user = context.User;
+            SocketUserMessage msg = context.Message;
             if (user is SocketGuildUser currentUser
                 && !currentUser.Roles.Contains(context.Guild.Roles.FirstOrDefault(x => 
                     x.Id == Configuration.Root.GetValue<ulong>("eventmanager")))
@@ -652,52 +636,50 @@ namespace ComradesChannelBot.Handlers
             if (args.Count != 3) return;
             if (ulong.TryParse(args[0], out ulong msgId) && msg.MentionedRoles.Count == 1)
             {
-                var emote = msg.Tags.Where(x => x.Type == TagType.Emoji)
+                List<Emote> emote = msg.Tags.Where(x => x.Type == TagType.Emoji)
                     .Select(t => (Emote)t.Value).ToList();
                 if (emote.Count != 1) return;
-                var userMsg = (RestUserMessage) await context.Channel.GetMessageAsync(msgId);
+                RestUserMessage userMsg = (RestUserMessage) await context.Channel.GetMessageAsync(msgId);
                 await userMsg.AddReactionAsync(emote[0]);
             }
         }
-        private static async Task HelpCommand(SocketCommandContext context) //help
+        
+        private static async Task HelpCommand(SocketCommandContext context)
         {
-            var firstCategoryName = DiscordBot.Client.GetGuild(Configuration.Root.GetValue<ulong>("guild"))
-                .GetCategoryChannel(Configuration.Root.GetValue<ulong>("category")).Name;
-            var secondCategoryName = DiscordBot.Client.GetGuild(Configuration.Root.GetValue<ulong>("guild"))
-                .GetCategoryChannel(Configuration.Root.GetValue<ulong>("gamingcategory")).Name;
-            var embed = new EmbedBuilder
+            string firstCategoryName = CategoryChannel.Name;
+            
+            EmbedBuilder embed = new EmbedBuilder
             {
                 Color = Color.Blue,
                 Title = CacheService.Lang["commands"],
-                Description = CacheService.Lang["prefix"].Replace("{Configuration.Root[\"prefix\"]}",
+                Description = CacheService.Lang["prefix"]
+                    ?.Replace("{Configuration.Root[\"prefix\"]}",
                     Configuration.Root["prefix"]),
                 Fields = new List<EmbedFieldBuilder>
                 {
                     new EmbedFieldBuilder {Name =
                             $"**`{Configuration.Root["prefix"]}createchannel`** <num> [permissions*] *(alias: cc)*",
-                        Value =  CacheService.Lang["help_value_1"].Replace("{FirstCategoryName}",
+                        Value =  CacheService.Lang["help_value_1"]
+                            ?.Replace("{FirstCategoryName}",
                             firstCategoryName)},
                     new EmbedFieldBuilder {Name = $"**`{Configuration.Root["prefix"]}createchannel`** <num> <name> [permissions*] *(alias: cc)*",
-                        Value = CacheService.Lang["help_value_2"].Replace("{FirstCategoryName}",
+                        Value = CacheService.Lang["help_value_2"]
+                            ?.Replace("{FirstCategoryName}",
                             firstCategoryName)},
                     new EmbedFieldBuilder {Name = $"**`{Configuration.Root["prefix"]}createchannel`** <name> [permissions*] *(alias: cc)*",
-                        Value = CacheService.Lang["help_value_3"].Replace("{FirstCategoryName}",
+                        Value = CacheService.Lang["help_value_3"]
+                            ?.Replace("{FirstCategoryName}",
                             firstCategoryName)},
-                    new EmbedFieldBuilder {Name = $"**`{Configuration.Root["prefix"]}creategamingchannel`** <num> [permissions*] *(alias: cgc)*",
-                        Value = CacheService.Lang["help_value_4"].Replace("{SecondCategoryName}",
-                            secondCategoryName)},
-                    new EmbedFieldBuilder {Name = $"**`{Configuration.Root["prefix"]}creategamingchannel`** <num> <name> [permissions*] *(alias: cgc)*",
-                        Value = CacheService.Lang["help_value_5"].Replace("{SecondCategoryName}",
-                            secondCategoryName)},
                     new EmbedFieldBuilder {Name = $"**`*permissions`**", Value = CacheService.Lang["spec_perms"]}
                 },
                 Footer = new EmbedFooterBuilder { Text = CacheService.Lang["help_footer"] }
             };
-            var adminOnlyEmbed = new EmbedBuilder
+            EmbedBuilder adminOnlyEmbed = new EmbedBuilder
             {
                 Color = Color.Blue,
                 Title = CacheService.Lang["admins_only"],
-                Description = CacheService.Lang["prefix"].Replace("{Configuration.Root[\"prefix\"]}",
+                Description = CacheService.Lang["prefix"]
+                    ?.Replace("{Configuration.Root[\"prefix\"]}",
                     Configuration.Root["prefix"]),
                 Fields = new List<EmbedFieldBuilder>
                 {
@@ -715,5 +697,35 @@ namespace ComradesChannelBot.Handlers
             await context.Channel.SendMessageAsync(null, false, adminOnlyEmbed.Build());
         }
         #endregion
+
+        private static Embed GetEmbed(string title, string description, Color color)
+        {
+            return new EmbedBuilder().WithColor(color).WithDescription(description)
+                .WithDescription(title).Build();
+        }
+
+        private static Embed GetErrorEmbed(string description, SocketUser author = null)
+        {
+            string thisDesctiption = author is null ? description : author.Mention + description;
+            return GetEmbed(CacheService.Lang["error_title"], thisDesctiption, Color.Red);
+        }
+
+        private static Embed GetWarningEmbed(string description, SocketUser author = null)
+        {
+            string thisDesctiption = author is null ? description : author.Mention + description;
+            return GetEmbed(CacheService.Lang["warning_title"], thisDesctiption, Color.Orange);
+        }
+
+        private static Embed GetSuccessEmbed(string description, SocketUser author = null)
+        {
+            string thisDescription = author is null ? description : author.Mention + description;
+            return GetEmbed(CacheService.Lang["success_title"], thisDescription, Color.Green);
+        }
+
+        private static Embed GetInfoEmbed(string description, SocketUser author = null)
+        {
+            string thisDescription = author is null ? description : author.Mention + description;
+            return GetEmbed(CacheService.Lang["info_title"], thisDescription, Color.Blue);
+        }
     }
 }

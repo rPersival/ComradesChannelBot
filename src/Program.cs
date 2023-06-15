@@ -1,9 +1,6 @@
 ﻿using System;
 using System.Threading.Tasks;
 using ComradesChannelBot.Handlers;
-using Discord.Commands;
-using Discord.WebSocket;
-using Microsoft.Extensions.Configuration;
 
 namespace ComradesChannelBot
 {
@@ -12,11 +9,7 @@ namespace ComradesChannelBot
         static async Task Main(string[] args)
         {
             Console.WriteLine("ComradesChannelBot\nStarting up...");
-            Configuration.InitializeRoot("configuration.json");
-            Configuration.InitializeEnglish("en-us.json");
-            Configuration.InitializeRussian("ru-ru.json");
-            await DiscordBot.Initialize(Configuration.Root["dtoken"]);
-            Logger.Initialize();
+            InitializeServices();
             Logger.Log("All services initialized.");
             
             DiscordBot.Client.MessageReceived += async e
@@ -30,6 +23,15 @@ namespace ComradesChannelBot
 
             Logger.Log("Receiving messages.");
             await Task.Delay(-1);
+        }
+
+        static async void InitializeServices()
+        {
+            Configuration.InitializeRoot("configuration.json");
+            Configuration.InitializeEnglish("en-us.json");
+            Configuration.InitializeRussian("ru-ru.json");
+            await DiscordBot.Initialize(Configuration.Root["dtoken"]);
+            Logger.Initialize();
         }
     }
 }

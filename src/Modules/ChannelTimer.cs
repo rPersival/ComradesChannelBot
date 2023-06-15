@@ -45,7 +45,7 @@ namespace ComradesChannelBot.Modules
                 Description = CacheService.Lang["channel_warning"].Replace("{channel.Name}", channel.Name)
             };
             
-            if (channel.Users.Count != 0)
+            if (channel.ConnectedUsers.Count != 0)
             {
                 new ChannelTimer(_channelId).Set(_interval);
                 //Logger.Log("Unable to delete channel. Users.Count != 0. Resetting timer.");

@@ -11,11 +11,12 @@ namespace ComradesChannelBot
 
         public static async Task Initialize(string token)
         {
-            if (string.IsNullOrWhiteSpace(token)) throw new ArgumentNullException("token");
+            if (string.IsNullOrWhiteSpace(token)) throw new ArgumentNullException(nameof(token));
             Client = new DiscordSocketClient(new DiscordSocketConfig
             {
                 LogLevel = LogSeverity.Verbose,
-                MessageCacheSize = 1000
+                MessageCacheSize = 1000,
+                GatewayIntents = GatewayIntents.All
             });
             await Client.LoginAsync(TokenType.Bot, token);
             await Client.StartAsync();

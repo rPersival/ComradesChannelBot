@@ -7,6 +7,8 @@
   "success_title": "Успех ✅",
   "success_title_channel": "Канал создан ✅",
   "admins_only": "Только для администраторов сервера ♾",
+  "guild_error": "Сервер не найден. Пожалуйста, вставьте id вашего сервера в configuration.json",
+  "category_error": "Категория не найдена. Пожалуйста, вставьте id вашей категории в configuration.json",
   "command_doesnt_exist": ", такой команды не существует. Воспользуйся `{Configuration.Root[\"prefix\"]}help` чтобы получить список команд.",
   "auth_warn": ", вы уже прошли проверку.",
   "auth_error": ", вы ввели неверный код аутентификации. Пожалуйста, повторите попытку. \n\n Код находится в {MentionUtils.MentionChannel(714800261750849596)}",
