@@ -29,7 +29,7 @@ jobs:
           push: true
           provenance: false
           platforms: linux/arm64/v8
-          tags: ghcr.io/rPersival/comradeschannelbot:latest
+          tags: ghcr.io/rpersival/comradeschannelbot:latest
   
   deploy:
     name: Call redeployment webhook
