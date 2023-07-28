@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/aspnet:7.0-alpine as build
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk as build
 WORKDIR /build
 COPY . .
 RUN dotnet publish -c Release -p:AssemblyName=app -o "output"
