@@ -8,6 +8,6 @@ RUN rm configuration.json
 FROM mcr.microsoft.com/dotnet/aspnet:7.0-alpine-arm64v8
 WORKDIR /app 
 RUN apk add icu
-COPY --from=build . ./ 
+COPY --from=build /build/output/ .
 
-ENTRYPOINT ["dotnet", "app.dll"] 
+ENTRYPOINT ["dotnet", "app.dll"]
